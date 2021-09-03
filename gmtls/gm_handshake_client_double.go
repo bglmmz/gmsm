@@ -193,7 +193,7 @@ func (hs *clientHandshakeStateGM) doFullHandshake() error {
 		// If this is the first handshake on a connection, process and
 		// (optionally) verify the server's certificates.
 		certs := make([]*x509.Certificate, len(certMsg.certificates))
-		for i, asn1Data := range certMsg.certificates {
+		for _, asn1Data := range certMsg.certificates {
 			cert, err := x509.ParseCertificate(asn1Data)
 			if err != nil {
 				c.sendAlert(alertBadCertificate)
@@ -206,22 +206,32 @@ func (hs *clientHandshakeStateGM) doFullHandshake() error {
 				return fmt.Errorf("tls: pubkey type of cert is error, expect sm2.publicKey")
 			}
 
-			//cert[0] is for signature while cert[1] is for encipher, refer to  GMT0024
-			//check key usage
-			switch i {
-			case 0:
-				if cert.KeyUsage == 0 || (cert.KeyUsage&(x509.KeyUsageDigitalSignature|cert.KeyUsage&x509.KeyUsageContentCommitment)) == 0 {
-					c.sendAlert(alertInsufficientSecurity)
-					return fmt.Errorf("tls: the keyusage of cert[0] does not exist or is not for KeyUsageDigitalSignature/KeyUsageContentCommitment, value:%d", cert.KeyUsage)
-				}
-			case 1:
-				if cert.KeyUsage == 0 || (cert.KeyUsage&(x509.KeyUsageDataEncipherment|x509.KeyUsageKeyEncipherment|x509.KeyUsageKeyAgreement)) == 0 {
-					c.sendAlert(alertInsufficientSecurity)
-					return fmt.Errorf("tls: the keyusage of cert[1] does not exist or is not for KeyUsageDataEncipherment/KeyUsageKeyEncipherment/KeyUsageKeyAgreement, value:%d", cert.KeyUsage)
-				}
+			if (cert.KeyUsage & (x509.KeyUsageDigitalSignature | cert.KeyUsage&x509.KeyUsageContentCommitment)) != 0 {
+				certs[0] = cert
+			} else if (cert.KeyUsage & (x509.KeyUsageCertSign | x509.KeyUsageCRLSign)) != 0 {
+				certs[2] = cert
+			} else if (cert.KeyUsage & (x509.KeyUsageDataEncipherment | x509.KeyUsageKeyEncipherment | x509.KeyUsageKeyAgreement)) != 0 {
+				certs[1] = cert
+			} else {
+				// do nothing
 			}
 
-			certs[i] = cert
+			//cert[0] is for signature while cert[1] is for encipher, refer to  GMT0024
+			//check key usage
+			//switch i {
+			//case 0:
+			//	if cert.KeyUsage == 0 || (cert.KeyUsage&(x509.KeyUsageDigitalSignature|cert.KeyUsage&x509.KeyUsageContentCommitment)) == 0 {
+			//		c.sendAlert(alertInsufficientSecurity)
+			//		return fmt.Errorf("tls: the keyusage of cert[0] does not exist or is not for KeyUsageDigitalSignature/KeyUsageContentCommitment, value:%d", cert.KeyUsage)
+			//	}
+			//case 1:
+			//	if cert.KeyUsage == 0 || (cert.KeyUsage&(x509.KeyUsageDataEncipherment|x509.KeyUsageKeyEncipherment|x509.KeyUsageKeyAgreement)) == 0 {
+			//		c.sendAlert(alertInsufficientSecurity)
+			//		return fmt.Errorf("tls: the keyusage of cert[1] does not exist or is not for KeyUsageDataEncipherment/KeyUsageKeyEncipherment/KeyUsageKeyAgreement, value:%d", cert.KeyUsage)
+			//	}
+			//}
+			//
+			//certs[i] = cert
 		}
 
 		if !c.config.InsecureSkipVerify {
