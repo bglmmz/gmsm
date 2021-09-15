@@ -635,32 +635,34 @@ func (hs *serverHandshakeStateGM) processCertsFromClient(certificates [][]byte) 
 
 	hs.certsFromClient = certificates
 	certs := make([]*x509.Certificate, len(certificates))
-	//var err error
-	//for i, asn1Data := range certificates {
-	//	if certs[i], err = x509.ParseCertificate(asn1Data); err != nil {
-	//		c.sendAlert(alertBadCertificate)
-	//		return nil, errors.New("tls: failed to parse client certificate: " + err.Error())
-	//	}
-	//}
 
-	for _, asn1Data := range certificates {
-		cert, err := x509.ParseCertificate(asn1Data)
-		if err != nil {
-			c.sendAlert(alertBadCertificate)
-			return nil, errors.New("tls: failed to parse client certificate: " + err.Error())
+	var err error
+	if len(certs) == 1 {
+		for i, asn1Data := range certificates {
+			if certs[i], err = x509.ParseCertificate(asn1Data); err != nil {
+				c.sendAlert(alertBadCertificate)
+				return nil, errors.New("tls: failed to parse client certificate: " + err.Error())
+			}
 		}
+	} else {
+		for _, asn1Data := range certificates {
+			cert, err := x509.ParseCertificate(asn1Data)
+			if err != nil {
+				c.sendAlert(alertBadCertificate)
+				return nil, errors.New("tls: failed to parse client certificate: " + err.Error())
+			}
 
-		if (cert.KeyUsage & (x509.KeyUsageDigitalSignature | cert.KeyUsage&x509.KeyUsageContentCommitment)) != 0 {
-			certs[1] = cert
-		} else if (cert.KeyUsage & (x509.KeyUsageCertSign | x509.KeyUsageCRLSign)) != 0 {
-			certs[0] = cert
-		} else if (cert.KeyUsage & (x509.KeyUsageDataEncipherment | x509.KeyUsageKeyEncipherment | x509.KeyUsageKeyAgreement)) != 0 {
-			certs[2] = cert
-		} else {
-			// do nothing
+			if (cert.KeyUsage & (x509.KeyUsageDigitalSignature | cert.KeyUsage&x509.KeyUsageContentCommitment)) != 0 {
+				certs[1] = cert //签名证书
+			} else if (cert.KeyUsage & (x509.KeyUsageCertSign | x509.KeyUsageCRLSign)) != 0 {
+				certs[0] = cert //CA证书
+			} else if (cert.KeyUsage & (x509.KeyUsageDataEncipherment | x509.KeyUsageKeyEncipherment | x509.KeyUsageKeyAgreement)) != 0 {
+				certs[2] = cert //加密证书
+			} else {
+				// do nothing
+			}
 		}
 	}
-
 	if c.config.ClientAuth >= VerifyClientCertIfGiven && len(certs) > 0 {
 		opts := x509.VerifyOptions{
 			Roots:         c.config.ClientCAs,
@@ -694,7 +696,11 @@ func (hs *serverHandshakeStateGM) processCertsFromClient(certificates [][]byte) 
 	}
 
 	var pub crypto.PublicKey
-	switch key := certs[1].PublicKey.(type) {
+	idx := 0
+	if len(certs) == 3 {
+		idx = 1
+	}
+	switch key := certs[idx].PublicKey.(type) {
 	case *ecdsa.PublicKey, *rsa.PublicKey, *sm2.PublicKey:
 		pub = key
 	default:
